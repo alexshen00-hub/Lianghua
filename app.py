@@ -143,6 +143,53 @@ def compute_scores(df: pd.DataFrame):
 
     total = score + delta * 2.7 - penalty
     return score, delta, penalty, total
+    
+# 在侧边栏加入参数
+hold_days = st.sidebar.number_input("持有天数（天）", min_value=1, max_value=30, value=5)
+stop_loss_pct = st.sidebar.number_input("止损（比例，0=不启用）", min_value=0.0, max_value=0.5, value=0.05, step=0.01)
+take_profit_pct = st.sidebar.number_input("止盈（比例，0=不启用）", min_value=0.0, max_value=1.0, value=0.1, step=0.01)
+# 将 0 转换为 None 以便回测函数识别
+stop_loss = stop_loss_pct if stop_loss_pct > 0 else None
+take_profit = take_profit_pct if take_profit_pct > 0 else None
+
+# 在 run_btn 被按下时运行回测
+if run_btn:
+    # codes 与之前相同获取方式
+    if custom_codes.strip():
+        codes = [c.strip() for c in custom_codes.split(",") if c.strip()]
+    else:
+        codes = get_stock_list(limit)
+
+    with st.spinner("正在基于 KDJ J<10 生成信号并回测…"):
+        trades_df, nav_df, summary = backtest_kdj_nextday(codes, start_date, end_date,
+                                                         hold_days=hold_days,
+                                                         stop_loss_pct=stop_loss,
+                                                         take_profit_pct=take_profit)
+
+    st.subheader("回测摘要")
+    st.json(summary)
+
+    if not trades_df.empty:
+        st.subheader("交易明细（样本）")
+        st.dataframe(trades_df.sort_values("buy_date").reset_index(drop=True).head(200))
+
+        # 盈利分布图
+        fig, ax = plt.subplots(figsize=(8,4))
+        ax.hist(trades_df['ret'], bins=30)
+        ax.set_title("交易收益分布")
+        ax.set_xlabel("收益率")
+        st.pyplot(fig)
+
+        # 简易净值曲线（若有）
+        if not nav_df.empty:
+            nav_df_sorted = nav_df.sort_values('date')
+            fig2, ax2 = plt.subplots(figsize=(10,4))
+            ax2.plot(pd.to_datetime(nav_df_sorted['date']), nav_df_sorted['cumulative'])
+            ax2.set_title("回测累计净值（简化）")
+            ax2.set_ylabel("累计净值")
+            st.pyplot(fig2)
+    else:
+        st.warning("回测未产生交易：可能样本太小或无满足 J<10 的信号。")
 
 def score_one_code(code, start_date, end_date):
     df = fetch_hist(code, start_date, end_date)
